@@ -15,7 +15,10 @@ final class CarouselViewController: UIViewController {
     @IBOutlet private weak var containerView: UIView!
     
     /// Carousel control with page indicator
-    @IBOutlet private weak var carouselControl: UIPageControl!
+//    @IBOutlet private weak var carouselControl: UIPageControl!
+    
+    // MARK: - Custom TilePageControl
+    private let tilePageControl = TilePageControl()
 
 
     /// Page view controller for carousel
@@ -24,14 +27,22 @@ final class CarouselViewController: UIViewController {
     /// Carousel items
     private var items: [CarouselItem] = []
     
+    private var isAutoAdvancing: Bool = false
+    private var isUserInteracting: Bool = false
+
+    
     /// Current item index
     private var currentItemIndex: Int = 0 {
         didSet {
             // Update carousel control page
-            self.carouselControl.currentPage = currentItemIndex
+            self.tilePageControl.configure(numberOfPages: items.count, currentPage: currentItemIndex)
+            resetAutoAdvanceTimer()
         }
     }
 
+    /// Timer for automatic carousel advancement
+    private var autoAdvanceTimer: Timer?
+    
     /// Initializer
     /// - Parameter items: Carousel items
     public init(items: [CarouselItem]) {
@@ -47,9 +58,27 @@ final class CarouselViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         initPageViewController()
-        initCarouselControl()
+        initTilePageControl()
+        addTapGestureRecognizers()
+        startAutoAdvanceTimer()
     }
     
+    deinit {
+        // Invalidate the timer when the view controller is deinitialized
+        autoAdvanceTimer?.invalidate()
+    }
+    
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        autoAdvanceTimer?.invalidate()
+        isAutoAdvancing = false
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        startAutoAdvanceTimer()
+    }
+
     
     /// Initialize page view controller
     private func initPageViewController() {
@@ -74,44 +103,100 @@ final class CarouselViewController: UIViewController {
     }
 
     /// Initialize carousel control
-    private func initCarouselControl() {
-        // Set page indicator color
-        carouselControl.currentPageIndicatorTintColor = UIColor.darkGray
-        carouselControl.pageIndicatorTintColor = UIColor.lightGray
+    private func initTilePageControl() {
+        tilePageControl.translatesAutoresizingMaskIntoConstraints = false
+        tilePageControl.configure(numberOfPages: items.count, currentPage: currentItemIndex)
         
-        // Set number of pages in carousel control and current page
-        carouselControl.numberOfPages = items.count
-        carouselControl.currentPage = currentItemIndex
+        view.addSubview(tilePageControl)
         
-        // Add target for page control value change
-        carouselControl.addTarget(
-                    self,
-                    action: #selector(updateCurrentPage(sender:)),
-                    for: .valueChanged)
-    }
-
-    /// Update current page
-    /// Parameter sender: UIPageControl
-    @objc func updateCurrentPage(sender: UIPageControl) {
-        // Get direction of page change based on current item index
-        let direction: UIPageViewController.NavigationDirection = sender.currentPage > currentItemIndex ? .forward : .reverse
+        NSLayoutConstraint.activate([
+            tilePageControl.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tilePageControl.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tilePageControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            tilePageControl.heightAnchor.constraint(equalToConstant: 4)
+        ])
         
-        // Get controller for the page
-        let controller = getController(at: sender.currentPage)
-        
-        // Set view controller in pageViewController
-        pageViewController?.setViewControllers([controller], direction: direction, animated: true, completion: nil)
-        
-        // Update current item index
-        currentItemIndex = sender.currentPage
+        tilePageControl.backgroundColor = .clear
     }
     
-    /// Get controller at index
-    /// - Parameter index: Index of the controller
-    /// - Returns: UIViewController
+    /// Add tap gestures for left and right side taps
+    private func addTapGestureRecognizers() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        view.addGestureRecognizer(tapGesture)
+    }
+    
+    /// Handle tap gesture
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        guard !isUserInteracting else { return }
+        isUserInteracting = true
+        
+        let location = gesture.location(in: self.view)
+        
+        let newIndex: Int
+        let direction: UIPageViewController.NavigationDirection
+        if location.x < view.bounds.width / 2 {
+            newIndex = (currentItemIndex > 0) ? (currentItemIndex - 1) : (items.count - 1)
+            direction = .reverse
+        } else {
+            newIndex = (currentItemIndex < items.count - 1) ? (currentItemIndex + 1) : 0
+            direction = .forward
+        }
+        
+        let newViewController = getController(at: newIndex)
+        
+        if pageViewController?.viewControllers?.first != newViewController {
+            pageViewController?.setViewControllers([newViewController], direction: direction, animated: true) { [weak self] finished in
+                guard let self = self else { return }
+                self.isUserInteracting = false
+            }
+            currentItemIndex = newIndex
+        } else {
+            isUserInteracting = false
+        }
+    }
+
+
+
+    /// Start the auto-advance timer
+    private func startAutoAdvanceTimer() {
+        print("Starting auto-advance timer.")
+        autoAdvanceTimer = Timer.scheduledTimer(timeInterval: 5.0, target: self, selector: #selector(autoAdvance), userInfo: nil, repeats: true)
+    }
+    
+    private func resetAutoAdvanceTimer() {
+        print("Resetting auto-advance timer.")
+        autoAdvanceTimer?.invalidate() // Invalidate the existing timer
+        autoAdvanceTimer = nil // Set to nil to ensure a new timer is created
+        startAutoAdvanceTimer() // Start a new timer
+    }
+    
+    @objc private func autoAdvance() {
+        guard !isAutoAdvancing && !isUserInteracting else { return }
+        
+        isAutoAdvancing = true
+        let newIndex = (currentItemIndex + 1) % items.count
+        let direction: UIPageViewController.NavigationDirection = newIndex > currentItemIndex ? .forward : .reverse
+        let newViewController = getController(at: newIndex)
+        
+        if let currentViewController = pageViewController?.viewControllers?.first,
+           currentViewController != newViewController {
+            pageViewController?.setViewControllers([newViewController], direction: direction, animated: true) { [weak self] finished in
+                guard let self = self else { return }
+                self.currentItemIndex = newIndex
+                self.isAutoAdvancing = false
+            }
+        } else {
+            isAutoAdvancing = false
+        }
+    }
+    
     private func getController(at index: Int) -> UIViewController {
+        guard index >= 0, index < items.count else {
+            fatalError("Index out of bounds while fetching view controller.")
+        }
         return items[index].getController()
     }
+
 
 }
 
