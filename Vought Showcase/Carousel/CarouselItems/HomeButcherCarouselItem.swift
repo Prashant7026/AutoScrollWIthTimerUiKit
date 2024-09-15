@@ -8,7 +8,7 @@
 import UIKit
 
 
-final class HomeLanderCarouselItem: CarouselItem {
+final class HomeButcherCarouselItem: CarouselItem {
     private var viewController: UIViewController?
     
     /// Get controller
@@ -18,7 +18,7 @@ final class HomeLanderCarouselItem: CarouselItem {
         // If not, create new view controller
         // else return the existing view controller
         guard let viewController = viewController else {
-            viewController = ImageViewController(imageName: "homelander")
+            viewController = ImageViewController(imageName: "butcher")
             return viewController!
         }
         return viewController
